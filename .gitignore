@@ -1,6 +1,11 @@
-/.claude
-/.venv
-/brain.pd
-/pdgen.py
-/test-output.wav,.wav
-/test.py
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Claude
+.claude/
+
+# Generated/temp files
+*.wav
+brain.pd
