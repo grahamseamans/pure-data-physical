@@ -19,7 +19,8 @@ class PdPatch:
         """Add a message box, return its index."""
         idx = len(self.objects)
         # Escape special chars for Pd file format
-        content = content.replace(';', '\\;').replace(',', '\\,')
+        # $ must be escaped as \$ for runtime substitution (not parse-time)
+        content = content.replace('$', '\\$').replace(';', '\\;').replace(',', '\\,')
         self.objects.append(('msg', x, y, content))
         return idx
 
@@ -122,22 +123,33 @@ def make_brain():
     type_print = p.obj(180, 320, "print", "type")
 
     # Param handling: /param module-id param-name value
-    # For now, hardcode module-1 freq -> send to module-1-freq
+    # Dynamic routing: constructs receiver name from module-id + param-name
     param_print = p.obj(450, 280, "print", "param-raw")
     param_unpack = p.obj(200, 280, "unpack", "s", "s", "f")  # module-id, param-name, value
-    # Use select to match param-name, then use value
-    param_sel = p.obj(200, 320, "select", "freq")  # match param name
-    param_f = p.obj(280, 320, "f")  # store value, bang to output
-    param_send = p.obj(200, 400, "send", "module-1-freq")  # send to osc~
-    param_done = p.obj(350, 400, "print", "sent-freq")
+    # Pack module-id and param-name, force list interp, then format
+    param_pack = p.obj(200, 320, "pack", "s", "s")  # combine module-id, param-name
+    param_list = p.obj(200, 360, "list")  # forces list interpretation (no selector)
+    param_fmt = p.msg(200, 400, "$1-$2")  # -> "module-1-freq"
+    param_sym = p.obj(200, 440, "symbol")  # convert to symbol
+    param_f = p.obj(350, 320, "f")  # stores value, outputs on bang
+    # Trigger on symbol: output symbol (right) then bang (left) to release stored value
+    param_trig = p.obj(200, 480, "t", "s", "b")  # symbol first, then bang
+    param_send = p.obj(200, 560, "send")  # blank - destination set dynamically
+    param_done = p.obj(350, 560, "print", "sent-to")
 
     p.connect(route, 1, param_print)
     p.connect(route, 1, param_unpack)
-    p.connect(param_unpack, 1, param_sel)    # param-name -> select
-    p.connect(param_unpack, 2, param_f, 1)   # value -> f right inlet (store)
-    p.connect(param_sel, 0, param_f)         # freq match -> bang f -> output value
-    p.connect(param_f, 0, param_send)        # value -> send
-    p.connect(param_f, 0, param_done)        # also print
+    p.connect(param_unpack, 0, param_pack, 0)  # module-id -> pack left
+    p.connect(param_unpack, 1, param_pack, 1)  # param-name -> pack right
+    p.connect(param_unpack, 2, param_f, 1)     # value -> f right inlet (store)
+    p.connect(param_pack, 0, param_list, 0)    # packed -> list (force list interp)
+    p.connect(param_list, 0, param_fmt, 0)     # list -> msg
+    p.connect(param_fmt, 0, param_sym, 0)      # formatted -> tosymbol
+    p.connect(param_sym, 0, param_trig, 0)     # symbol -> trigger
+    p.connect(param_trig, 0, param_send, 1)    # symbol -> send right inlet (set dest)
+    p.connect(param_trig, 0, param_done)       # debug print destination
+    p.connect(param_trig, 1, param_f, 0)       # bang -> f left inlet (output value)
+    p.connect(param_f, 0, param_send, 0)       # value -> send left inlet (send it)
 
     goodbye_print = p.obj(450, 240, "print", "goodbye")
     p.connect(route, 2, goodbye_print)
