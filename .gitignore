@@ -1,0 +1,6 @@
+/.claude
+/.venv
+/brain.pd
+/pdgen.py
+/test-output.wav,.wav
+/test.py
