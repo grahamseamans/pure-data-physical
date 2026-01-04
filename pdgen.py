@@ -85,14 +85,18 @@ def make_brain():
     p.text(20, 20, "=== PURE DATA PHYSICAL - BRAIN ===")
     p.text(20, 45, "Dynamic module instantiation")
 
-    # Voices subpatch - just *~ and print~ to verify signal flow
+    # Voices subpatch - with static receive for freq control
     voices = PdPatch()
     voices.obj(50, 50, "namecanvas", "voices")  # id 0
     v_vol = voices.obj(50, 200, "*~", "0.3")    # id 1
-    v_env = voices.obj(50, 250, "env~")         # id 2 - amplitude follower
+    v_env = voices.obj(50, 250, "env~")         # id 2
     v_print = voices.obj(50, 300, "print", "signal-level")  # id 3
+    # Static receive for freq - will connect to dynamically created osc~
+    v_recv = voices.obj(200, 50, "receive", "module-1-freq")  # id 4
+    v_recv_print = voices.obj(300, 50, "print", "osc-freq-in")  # id 5
     voices.connect(v_vol, 0, v_env, 0)
     voices.connect(v_env, 0, v_print, 0)
+    voices.connect(v_recv, 0, v_recv_print)  # debug: print what goes to osc~
 
     p.subpatch(600, 100, "voices", voices)
 
@@ -117,11 +121,25 @@ def make_brain():
     p.obj(180, 280, "print", "module-id")
     type_print = p.obj(180, 320, "print", "type")
 
-    # Param and goodbye prints
-    param_print = p.obj(200, 240, "print", "param")
-    goodbye_print = p.obj(350, 240, "print", "goodbye")
+    # Param handling: /param module-id param-name value
+    # For now, hardcode module-1 freq -> send to module-1-freq
+    param_print = p.obj(450, 280, "print", "param-raw")
+    param_unpack = p.obj(200, 280, "unpack", "s", "s", "f")  # module-id, param-name, value
+    # Use select to match param-name, then use value
+    param_sel = p.obj(200, 320, "select", "freq")  # match param name
+    param_f = p.obj(280, 320, "f")  # store value, bang to output
+    param_send = p.obj(200, 400, "send", "module-1-freq")  # send to osc~
+    param_done = p.obj(350, 400, "print", "sent-freq")
 
     p.connect(route, 1, param_print)
+    p.connect(route, 1, param_unpack)
+    p.connect(param_unpack, 1, param_sel)    # param-name -> select
+    p.connect(param_unpack, 2, param_f, 1)   # value -> f right inlet (store)
+    p.connect(param_sel, 0, param_f)         # freq match -> bang f -> output value
+    p.connect(param_f, 0, param_send)        # value -> send
+    p.connect(param_f, 0, param_done)        # also print
+
+    goodbye_print = p.obj(450, 240, "print", "goodbye")
     p.connect(route, 2, goodbye_print)
 
     # Route by module type - use select instead of route for symbols
@@ -132,11 +150,19 @@ def make_brain():
     p.connect(unpack, 1, sel)
     p.connect(sel, 0, osc_print)
 
-    # Dynamic creation - osc~ will be id 4 in voices subpatch
-    # voices has: 0=namecanvas, 1=*~, 2=env~, 3=print
-    # so new osc~ is 4, connect it to *~ (1)
+    # Dynamic creation - create osc~ and connect to static receive
+    # voices has: 0=namecanvas, 1=*~, 2=env~, 3=print, 4=receive, 5=print recv
+    # We'll create:
+    #   6: osc~ 440 (the oscillator)
+    # Then connect: 4->6 (static recv -> osc~), 6->1 (osc~ -> volume)
     trig = p.obj(50, 480, "t", "b")
-    create_msg = p.msg(50, 520, "; voices obj 200 100 osc~ 440 ; voices connect 4 0 1 0 ; pd dsp 1 ;;")
+    create_msg = p.msg(50, 520,
+        "; voices obj 200 150 osc~ 100"  # id 6 - start at 100Hz
+        " ; voices connect 4 0 6 0"      # receive -> osc~
+        " ; voices connect 6 0 1 0"      # osc~ -> *~
+        " ; pd dsp 1"
+        " ;;"
+    )
     done_print = p.obj(50, 560, "print", "triggered-create")
 
     p.connect(sel, 0, trig)
